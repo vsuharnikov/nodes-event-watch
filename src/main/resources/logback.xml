@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <property name="pattern" value="%date{ISO8601,UTC} %-5level %logger{26} - %msg%n%ex"/>
+
+    <appender name="FILE" class="ch.qos.logback.core.FileAppender">
+        <file>${logging.dir}/events.log</file>
+        <append>true</append>
+        <encoder>
+            <pattern>${pattern}</pattern>
+        </encoder>
+    </appender>
+
+    <logger name="io.netty" level="INFO"/>
+    <logger name="io.grpc.netty" level="INFO"/>
+
+    <root level="TRACE">
+        <appender-ref ref="FILE"/>
+    </root>
+</configuration>
