@@ -2,6 +2,7 @@ package com.github.vsuharnikov
 
 import java.net.InetSocketAddress
 import java.util.concurrent.ExecutorService
+import java.util.concurrent.atomic.AtomicInteger
 
 import com.github.vsuharnikov.Watch.{RestartException, Settings}
 import com.github.vsuharnikov.node.NodeApi
@@ -28,8 +29,10 @@ class Watch(
 
   private val log = LoggerFactory.getLogger(s"Watch[${target.getHostString}]")
 
+  private val strikes = new AtomicInteger(settings.strikes)
   @volatile private var lastHeight = settings.fromHeight
   @volatile private var lastTxId = ""
+
   @volatile private var timeout: Option[Timeout] = None
   @volatile private var currentChannel = connect()
 
@@ -46,7 +49,13 @@ class Watch(
   }
 
   private def connect(): ManagedChannel = {
-    log.info(s"Starting from $lastHeight")
+    val h = safeHeight(lastHeight)
+    log.info(s"Starting from $h")
+
+    lastTxId = ""
+    lastHeight = h
+    strikes.set(settings.strikes)
+
     val channel = NettyChannelBuilder
       .forAddress(target)
       .executor(executorService)
@@ -57,7 +66,7 @@ class Watch(
     val call = channel.newCall(BlockchainUpdatesApiGrpc.METHOD_SUBSCRIBE, CallOptions.DEFAULT.withWaitForReady())
     ClientCalls.asyncServerStreamingCall(
       call,
-      SubscribeRequest(fromHeight = lastHeight),
+      SubscribeRequest(fromHeight = h),
       new ClientResponseObserver[SubscribeRequest, SubscribeEvent] {
         private var requestStream: Option[ClientCallStreamObserver[SubscribeRequest]] = None
 
@@ -70,6 +79,7 @@ class Watch(
           reschedule()
           lastHeight = evt.getUpdate.height
           lastTxIdOf(evt).foreach(lastTxId = _)
+          strikes.set(settings.strikes)
           log.debug(shortened(evt))
         }
 
@@ -92,9 +102,15 @@ class Watch(
             { (_: Timeout) =>
               val failed = lastTxId == "" || hasHigherBlock() || hasNextTx(lastTxId, lastHeight)
               if (failed) {
-                log.error("The check is timed out")
-                requestStream.foreach(_.cancel("Restarting", RestartException))
-              } else reschedule()
+                val updatedStrikes = strikes.decrementAndGet()
+                if (updatedStrikes <= 0) {
+                  log.error("The check is timed out")
+                  requestStream.foreach(_.cancel("Restarting", RestartException))
+                } else {
+                  log.warn(s"Failures $updatedStrikes/${settings.strikes}")
+                  reschedule()
+                }
+              }
             },
             settings.maxEventsDelay.length,
             settings.maxEventsDelay.unit
@@ -106,26 +122,28 @@ class Watch(
     channel
   }
 
+  private def hasHigherBlock(): Boolean =
+    nodeApi.height() match {
+      case Left(e) =>
+        log.error(s"Failed to ask height", e)
+        false // We don't know, does check fail or not
+      case Right(x) =>
+        log.info(s"Reference height: $x")
+        x > lastHeight
+    }
+
   private def hasNextTx(txId: String, atHeight: Int): Boolean =
     nodeApi.blockAt(atHeight) match {
       case Left(e) =>
         log.error(s"Failed to ask block $atHeight", e)
-        true
+        false // We don't know, does check fail or not
       case Right(x) =>
         val lastReferenceTxId = x.transactions.last.id
         log.info(s"Last known tx: ${txId.take(5)}, last reference tx: ${lastReferenceTxId.take(5)}, reference block: $x")
         lastReferenceTxId != txId
     }
 
-  private def hasHigherBlock(): Boolean =
-    nodeApi.height() match {
-      case Left(e) =>
-        log.error(s"Failed to ask height", e)
-        true
-      case Right(x) =>
-        log.info(s"Reference height: $x")
-        x > lastHeight
-    }
+  private def safeHeight(height: Int): Int = math.max(1, height - 20) // 100 is a max rollback height
 
   private def shortened(evt: SubscribeEvent): String = {
     val update = evt.getUpdate
@@ -157,7 +175,8 @@ object Watch {
     fromHeight: Int,
     connectTimeout: FiniteDuration,
     reconnectDelay: FiniteDuration,
-    maxEventsDelay: FiniteDuration
+    maxEventsDelay: FiniteDuration,
+    strikes: Int = 2 // TODO
   )
 
   private object RestartException extends RuntimeException with NoStackTrace

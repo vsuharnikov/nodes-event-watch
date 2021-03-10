@@ -91,14 +91,14 @@ object Main extends App {
           maxEventsDelay = settings.maxEventsDelay
         )
 
-        val watchers = settings.blockchainUpdateServers.map { target =>
+        val watches = settings.blockchainUpdateServers.map { target =>
           new Watch(watchSettings, target, executor, timer, nodeApi)
         }
 
         Runtime.getRuntime.addShutdownHook(new Thread() {
           override def run(): Unit = {
             log.info("Closing")
-            watchers.foreach(_.close())
+            watches.foreach(_.close())
             timer.stop()
             executor.shutdownNow()
           }

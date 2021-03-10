@@ -1,7 +1,8 @@
 ThisBuild / scalaVersion := "2.13.5"
 ThisBuild / version := "1.0.0"
+ThisBuild / maintainer := "Vyacheslav Suharnikov"
 
-enablePlugins(JavaAppPackaging)
+enablePlugins(JavaServerAppPackaging, JDebPackaging, SystemdPlugin)
 dockerBaseImage := "openjdk:11.0.9-jre-slim"
 run / fork := true
 
