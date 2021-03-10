@@ -12,22 +12,27 @@ Compile / packageBin / mappings ~= {
   _.filterNot { case (_, name) => name.endsWith("local.conf") }
 }
 
+Debian / linuxPackageMappings += {
+  val conf = sourceDirectory.value / "main" / "resources" / "application.conf"
+  packageMapping(conf -> "conf/main.conf")
+}
+
+debianPackageDependencies := Seq("java8-runtime-headless")
+bashScriptConfigLocation := Some("${app_home}/../conf/application.ini")
+bashScriptExtraDefines += """addJava "-Dconfig.file=${app_home}/../conf/main.conf""""
+
 lazy val root = (project in file("."))
   .settings(
     name := "nodes-event-watch",
     libraryDependencies ++= Seq(
       "ch.qos.logback" % "logback-classic" % "1.2.3",
       "net.logstash.logback" % "logstash-logback-encoder" % "6.6",
-
       "com.github.pureconfig" %% "pureconfig" % "0.14.1",
       "com.github.scopt" %% "scopt" % "4.0.0",
-
       ("com.wavesplatform" % "protobuf-schemas" % "1.2.8" classifier "proto") % "protobuf",
       "io.grpc" % "grpc-netty" % scalapb.compiler.Version.grpcJavaVersion,
-
       "com.thesamet.scalapb" %% "scalapb-runtime-grpc" % scalapb.compiler.Version.scalapbVersion,
       "com.thesamet.scalapb" %% "scalapb-json4s" % "0.10.1",
-
       "com.softwaremill.sttp.client3" %% "core" % "3.1.6",
       "com.softwaremill.sttp.client3" %% "play-json" % "3.1.6"
     ),
