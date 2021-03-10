@@ -4,7 +4,13 @@ ThisBuild / maintainer := "Vyacheslav Suharnikov"
 
 enablePlugins(JavaServerAppPackaging, JDebPackaging, SystemdPlugin)
 dockerBaseImage := "openjdk:11.0.9-jre-slim"
+
 run / fork := true
+run / cancelable := true
+
+Compile / packageBin / mappings ~= {
+  _.filterNot { case (_, name) => name.endsWith("local.conf") }
+}
 
 lazy val root = (project in file("."))
   .settings(
