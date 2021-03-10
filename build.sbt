@@ -1,5 +1,5 @@
 ThisBuild / scalaVersion := "2.13.5"
-ThisBuild / version := "1.0.0"
+ThisBuild / version := "1.0.1"
 ThisBuild / maintainer := "Vyacheslav Suharnikov"
 
 enablePlugins(JavaServerAppPackaging, JDebPackaging, SystemdPlugin)
@@ -13,6 +13,7 @@ lazy val root = (project in file("."))
       "ch.qos.logback" % "logback-classic" % "1.2.3",
       "net.logstash.logback" % "logstash-logback-encoder" % "6.6",
 
+      "com.github.pureconfig" %% "pureconfig" % "0.14.1",
       "com.github.scopt" %% "scopt" % "4.0.0",
 
       ("com.wavesplatform" % "protobuf-schemas" % "1.2.8" classifier "proto") % "protobuf",

@@ -7,22 +7,33 @@ import com.github.vsuharnikov.node.NodeApi
 import com.google.common.util.concurrent.ThreadFactoryBuilder
 import io.netty.util.HashedWheelTimer
 import org.slf4j.LoggerFactory
+import pureconfig._
+import pureconfig.generic.auto._
 import scopt.{OParser, Read}
-import sttp.client3.{HttpURLConnectionBackend, UriContext}
+import sttp.client3.HttpURLConnectionBackend
 import sttp.model.Uri
 
-import scala.concurrent.duration.{DurationInt, FiniteDuration}
+import scala.concurrent.duration.FiniteDuration
 
 object Main extends App {
 
   case class MainSettings(
-    blockchainUpdateServers: Seq[InetSocketAddress] = Seq.empty,
-    startHeight: Option[Int] = None,
-    nodeHttpApi: Uri = uri"http://example.com:1234",
-    connectTimeout: FiniteDuration = 2.seconds,
-    reconnectDelay: FiniteDuration = 10.seconds,
-    maxEventsDelay: FiniteDuration = 10.seconds
+    blockchainUpdateServers: Seq[InetSocketAddress],
+    startHeight: Option[Int],
+    nodeHttpApi: Uri,
+    connectTimeout: FiniteDuration,
+    reconnectDelay: FiniteDuration,
+    maxEventsDelay: FiniteDuration,
+    maxRollback: Int,
+    strikes: Int
   )
+
+  implicit val uriPureConfigReader: ConfigReader[Uri] = ConfigReader.stringConfigReader.map(Uri.unsafeParse)
+
+  implicit val inetSocketAddressPureConfigReader: ConfigReader[InetSocketAddress] = ConfigReader.stringConfigReader.map { x =>
+    val Array(host, port) = x.split(":")
+    new InetSocketAddress(host, port.toIntOption.getOrElse(throw new IllegalArgumentException(s"Unexpected port: $port")))
+  }
 
   implicit val uriScoptRead: Read[Uri] = Read.stringRead.map(Uri.unsafeParse)
 
@@ -38,11 +49,9 @@ object Main extends App {
       programName("nodes-event-watch"),
       opt[Seq[InetSocketAddress]]('s', "servers")
         .text("Watched servers, e.g.: 127.0.0.1:6881,foo.bar.com:6800")
-        .required()
         .action((x, c) => c.copy(blockchainUpdateServers = x)),
       opt[Uri]('n', "reference-node")
         .text("The reference Node HTTP API uri")
-        .required()
         .action((x, c) => c.copy(nodeHttpApi = x)),
       opt[Int]('h', "start-height")
         .text("Start height, should be >= 1. Retrieved by the NODE API if not specified")
@@ -55,11 +64,22 @@ object Main extends App {
         .action((x, c) => c.copy(reconnectDelay = x)),
       opt[FiniteDuration]('d', "max-events-delay")
         .text("The maximum delay between events")
-        .action((x, c) => c.copy(maxEventsDelay = x))
+        .action((x, c) => c.copy(maxEventsDelay = x)),
+      opt[Int]('s', "strikes")
+        .text("The number of failures after which displayed an error")
+        .action((x, c) => c.copy(strikes = x))
     )
   }
 
-  OParser.parse(argsParser, args, MainSettings()) match {
+  val initialSettings = ConfigSource.defaultApplication.at("nodes-event-watch").load[MainSettings] match {
+    case Right(x) => x
+    case Left(e) =>
+      System.err.println(s"Can't load settings ${e.prettyPrint()}")
+      System.exit(1)
+      throw new RuntimeException("Won't happen")
+  }
+
+  OParser.parse(argsParser, args, initialSettings) match {
     case None => System.exit(1)
     case Some(settings) =>
       val log = LoggerFactory.getLogger("NodesEventsWatch")
@@ -88,7 +108,9 @@ object Main extends App {
           fromHeight = startHeight,
           connectTimeout = settings.connectTimeout,
           reconnectDelay = settings.reconnectDelay,
-          maxEventsDelay = settings.maxEventsDelay
+          maxEventsDelay = settings.maxEventsDelay,
+          maxRollback = settings.maxRollback,
+          strikes = settings.strikes
         )
 
         val watches = settings.blockchainUpdateServers.map { target =>

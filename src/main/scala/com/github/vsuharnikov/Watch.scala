@@ -143,7 +143,7 @@ class Watch(
         lastReferenceTxId != txId
     }
 
-  private def safeHeight(height: Int): Int = math.max(1, height - 20) // 100 is a max rollback height
+  private def safeHeight(height: Int): Int = math.max(1, height - settings.maxRollback)
 
   private def shortened(evt: SubscribeEvent): String = {
     val update = evt.getUpdate
@@ -176,7 +176,8 @@ object Watch {
     connectTimeout: FiniteDuration,
     reconnectDelay: FiniteDuration,
     maxEventsDelay: FiniteDuration,
-    strikes: Int = 2 // TODO
+    maxRollback: Int,
+    strikes: Int
   )
 
   private object RestartException extends RuntimeException with NoStackTrace
